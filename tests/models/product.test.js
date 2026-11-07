@@ -57,7 +57,209 @@ describe('Product Model', () => {
   //
   // ADD YOUR TEST CASES HERE
   //
+  describe('Product Model - Read', () => {
+    test('should read a product', async () => {
+        const productData = ProductFactory.build();
+        delete productData.id;
+        
+        const savedProduct = await Product.create(productData);
+        expect(savedProduct.id).toBeDefined();
+        
+        // Fetch it back
+        const foundProduct = await Product.findByPk(savedProduct.id);
+        expect(foundProduct.id).toBe(savedProduct.id);
+        expect(foundProduct.name).toBe(productData.name);
+        expect(foundProduct.description).toBe(productData.description);
+        expect(parseFloat(foundProduct.price)).toBe(productData.price);
+      });
 
+    test('should delete a product', async () => {
+    await Product.destroy({ where: {}, truncate: true, cascade: true, force: true, restartIdentity: true });
+    const productsAfterInitialClean = await Product.findAll();
+
+    const { id, ...dataToCreate } = ProductFactory.build();
+    
+    const savedProduct = await Product.create(dataToCreate);
+
+    // await new Promise(resolve => setTimeout(resolve, 0)); // Micro-delay removed
+    let products = await Product.findAll();
+    expect(products.length).toBe(1);
+    
+    // delete the product and make sure it isn't in the database
+    await savedProduct.destroy();
+    products = await Product.findAll();
+    expect(products.length).toBe(0);
+  });
+
+  test('should list all products in the database', async () => {
+    let products = await Product.findAll();
+    expect(products.length).toBe(0);
+    
+    // Create 5 Products
+    for (let i = 0; i < 5; i++) {
+      const productData = ProductFactory.build();
+      delete productData.id;
+      await Product.create(productData);
+    }
+    
+    // See if we get back 5 products
+    products = await Product.findAll();
+    expect(products.length).toBe(5);
+  });
+
+  test('should find a product by name', async () => {
+    const products = await ProductFactory.createList(5);
+    const name = products[0].name;
+    const count = products.filter(product => product.name === name).length;
+    
+    const found = await Product.findByName(name);
+    expect(found.length).toBe(count);
+    
+    for (const product of found) {
+      expect(product.name).toBe(name);
+    }
+  });
+
+  test('should find products by availability', async () => {
+    const products = await ProductFactory.createList(10);
+    const available = products[0].available;
+    const count = products.filter(product => product.available === available).length;
+    
+    const found = await Product.findByAvailability(available);
+    expect(found.length).toBe(count);
+    
+    for (const product of found) {
+      expect(product.available).toBe(available);
+    }
+  });
+
+  test('should find products by category', async () => {
+    const products = await ProductFactory.createList(10);
+    const category = products[0].category;
+    const count = products.filter(product => product.category === category).length;
+    
+    const found = await Product.findByCategory(category);
+    expect(found.length).toBe(count);
+    
+    for (const product of found) {
+      expect(product.category).toBe(category);
+    }
+  });
+
+  });
+  //New
+  describe('UPDATE Product', () => {
+    test('should update a product', async () => {
+      const products = await createProducts(1);
+      const productToUpdate = products[0];
+      const updatePayload = {
+        name: 'Updated Name',
+        description: 'Updated Description',
+        price: '123.45',
+        category: productToUpdate.category,
+        available: !productToUpdate.available
+      };
+
+      const response = await request(app)
+        .put(`${BASE_URL}/${productToUpdate.id}`)
+        .send(updatePayload)
+        .expect(200);
+
+      expect(response.body.id).toBe(productToUpdate.id);
+      expect(response.body.name).toBe(updatePayload.name);
+      expect(response.body.price).toBe(parseFloat(updatePayload.price));
+      expect(response.body.available).toBe(updatePayload.available);
+    });
+
+    test('should return 400 on validation error during update', async () => {
+        const products = await createProducts(1);
+        const product = products[0];
+        const invalidUpdateData = { name: '' }; // Invalid name
   
+        await request(app)
+          .put(`${BASE_URL}/${product.id}`)
+          .send(invalidUpdateData)
+          .expect(400);
+      });
+    });
   
+    describe('DELETE Product', () => {
+        test('should delete a product', async () => {
+          const products = await createProducts(1);
+          const product = products[0];
+    
+          await request(app)
+            .delete(`${BASE_URL}/${product.id}`)
+            .expect(204);
+    
+          // Verify it's gone
+          await request(app)
+            .get(`${BASE_URL}/${product.id}`)
+            .expect(404);
+        });
+
+        test('should return 404 when deleting a non-existent product', async () => {
+            await request(app)
+              .delete(`${BASE_URL}/99999`)
+              .expect(404);
+          });
+
+        });
+    
+        describe('LIST Products', () => {
+            test('should list all products', async () => {
+              await createProducts(5);
+              const response = await request(app)
+                .get(BASE_URL)
+                .expect(200);
+              expect(response.body.length).toBe(5);
+            });
+
+            test('should filter products by name', async () => {
+                await createProducts(2);
+                const productData = ProductFactory.build({ name: 'My Special Laptop' });
+                await request(app).post(BASE_URL).send(productData).expect(201);
+                await createProducts(2);
+          
+                const response = await request(app)
+                  .get(`${BASE_URL}?name=Special%20Laptop`)
+                  .expect(200);
+                expect(response.body.length).toBe(1);
+                expect(response.body[0].name).toBe('My Special Laptop');
+              });
+          
+              test('should filter products by category', async () => {
+                const defaultCategoryProduct = ProductFactory.build({ category: 'FOOD' });
+                const specialCategoryProduct = ProductFactory.build({ category: 'TOOLS' });
+                await request(app).post(BASE_URL).send(defaultCategoryProduct).expect(201);
+                await request(app).post(BASE_URL).send(specialCategoryProduct).expect(201);
+                
+                const response = await request(app)
+                  .get(`${BASE_URL}?category=TOOLS`)
+                  .expect(200);
+          
+                expect(response.body.length).toBe(1);
+                expect(response.body[0].category).toBe('TOOLS');
+              });
+          
+              test('should filter products by availability', async () => {
+                const availableProduct = ProductFactory.build({ available: true });
+                const unavailableProduct = ProductFactory.build({ available: false });
+              
+                await request(app).post(BASE_URL).send(availableProduct).expect(201);
+                await request(app).post(BASE_URL).send(unavailableProduct).expect(201);
+              
+                const response = await request(app)
+                  .get(`${BASE_URL}?availability=true`)
+                  .expect(200);
+              
+                expect(response.body.length).toBe(1);
+                expect(response.body[0].available).toBe(true);
+              });
+              
+            });
+        
+
 });
+
+//
